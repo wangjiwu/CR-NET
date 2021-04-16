@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import random
 import math
 # import librosa
-import librosa
+#import librosa
 import cv2
 import os
 import numpy as np
@@ -99,6 +99,15 @@ class PersonalityDataset(Dataset):
             data = pickle.load(pkl_file)
             sence_series = data["sence_series"]
             head_series =  data["head_series"]
+            # xcount = 0
+            # for item in sence_series:
+            #     cv2.imwrite("./tmp/" + str(xcount) + '.png', item)
+            #     xcount = xcount + 1
+            #
+            # for item in head_series:
+            #     cv2.imwrite("./tmp/head_" + str(xcount) + '.png', item)
+            #     xcount = xcount + 1
+
 
             # arr1 = [
             #     transforms.ToTensor()(cv2.cvtColor(cv2.resize(frame, (112, 112)), cv2.COLOR_BGR2RGB)).view(3, 112, 112,
@@ -109,9 +118,7 @@ class PersonalityDataset(Dataset):
             #                                                                                                1)
             #     for frame in head_series]
             # xcount = 0
-            # for item in sence_series:
-            #     cv2.imwrite("./tmp/" + str(xcount) + '.png', item)
-            #     xcount = xcount + 1
+
 
             if not self.useHead:
 

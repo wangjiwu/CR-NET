@@ -557,12 +557,13 @@ class ResNet_old(nn.Module):
 
         x_cls = [self.fc_e(re_e), self.fc_n(re_n), self.fc_a(re_a), self.fc_c(re_c), self.fc_o(re_o), self.fc_i(re_i)]
 
-        x_reg = [self.sofmax(self.rfc_e(regress_e.reshape(regress_e.size(0), -1))),
+        x_reg = [self.sigmoid(self.rfc_e(regress_e.reshape(regress_e.size(0), -1))),
                  self.rfc_n(regress_n.reshape(regress_n.size(0), -1)),
-                 self.sofmax(self.rfc_a(regress_a.reshape(regress_a.size(0), -1))),
+                 self.sigmoid(self.rfc_a(regress_a.reshape(regress_a.size(0), -1))),
                  self.rfc_c(regress_c.reshape(regress_c.size(0), -1)),
-                 self.sofmax(self.rfc_o(regress_o.reshape(regress_o.size(0), -1))),
-                 self.sofmax(self.rfc_i(regress_i.reshape(regress_i.size(0), -1))), ]
+                 self.sigmoid(self.rfc_o(regress_o.reshape(regress_o.size(0), -1))),
+                 self.sigmoid(self.rfc_i(regress_i.reshape(regress_i.size(0), -1))), ]
+
         # x_reg = [self.rfc_e(regress_e.reshape(regress_e.size(0), -1)),
         #          self.rfc_n(regress_n.reshape(regress_n.size(0), -1)),
         #          self.rfc_a(regress_a.reshape(regress_a.size(0), -1)),
@@ -676,19 +677,19 @@ class ResNet_old_pretrain(nn.Module):
         x_cls = [self.fc_e(re_e), self.fc_n(re_n), self.fc_a(re_a), self.fc_c(re_c), self.fc_o(re_o), self.fc_i(re_i)]
 
 
-        # x_reg = [self.rfc_e(regress_e.reshape(regress_e.size(0), -1)),
-        #          self.rfc_n(regress_n.reshape(regress_n.size(0), -1)),
-        #          self.rfc_a(regress_a.reshape(regress_a.size(0), -1)),
-        #          self.rfc_c(regress_c.reshape(regress_c.size(0), -1)),
-        #          self.rfc_o(regress_o.reshape(regress_o.size(0), -1)),
-        #          self.rfc_i(regress_i.reshape(regress_i.size(0), -1)), ]
-
-        x_reg = [self.sigmoid(self.rfc_e(regress_e.reshape(regress_e.size(0), -1))),
+        x_reg = [self.rfc_e(regress_e.reshape(regress_e.size(0), -1)),
                  self.rfc_n(regress_n.reshape(regress_n.size(0), -1)),
-                 self.sigmoid(self.rfc_a(regress_a.reshape(regress_a.size(0), -1))),
+                 self.rfc_a(regress_a.reshape(regress_a.size(0), -1)),
                  self.rfc_c(regress_c.reshape(regress_c.size(0), -1)),
-                 self.sigmoid(self.rfc_o(regress_o.reshape(regress_o.size(0), -1))),
-                 self.sigmoid(self.rfc_i(regress_i.reshape(regress_i.size(0), -1))), ]
+                 self.rfc_o(regress_o.reshape(regress_o.size(0), -1)),
+                 self.rfc_i(regress_i.reshape(regress_i.size(0), -1)), ]
+
+        # x_reg = [self.sigmoid(self.rfc_e(regress_e.reshape(regress_e.size(0), -1))),
+        #          self.rfc_n(regress_n.reshape(regress_n.size(0), -1)),
+        #          self.sigmoid(self.rfc_a(regress_a.reshape(regress_a.size(0), -1))),
+        #          self.rfc_c(regress_c.reshape(regress_c.size(0), -1)),
+        #          self.sigmoid(self.rfc_o(regress_o.reshape(regress_o.size(0), -1))),
+        #          self.sigmoid(self.rfc_i(regress_i.reshape(regress_i.size(0), -1))), ]
 
         ''''''
         if without_closs:

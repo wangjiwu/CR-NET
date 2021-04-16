@@ -1,6 +1,6 @@
 import PersonalityDataset
 from torch.utils.data import TensorDataset
-import librosa
+#import librosa
 from PersonalityDataset import get_data_list_and_big_five,get_one_hot
 import new_resnet_6d
 from torch.utils.data import Dataset, DataLoader
@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 from new_resnet_6d import ResNet_audio, ResNet_old_pretrain
 import time
 from BellLoss import BellingLoss
-from config import useHead, without_closs,modality_type, resnet_pretrained,full_train,div_arr
+from config import useHead, without_closs,modality_type, resnet_pretrained,full_train,div_arr, train_stage
+from valid_resnet import test_audio_resnet ,test_visual,extra_tree_regress_eval
 import pickle
 import sys, os,random
 import argparse
@@ -19,9 +20,9 @@ import numpy as np
 
 
 
-epoch_max_number =30
+epoch_max_number = 50
 
-train_batch_size = 32
+train_batch_size = 30
 
 #learning_rate = 0.00002
 
@@ -31,14 +32,15 @@ learning_rate = 0.00002
 momentum = 0.9
 num_classes = 4
 weight_decay = 0.005
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 
 
-
+print(modality_type, resnet_pretrained,full_train, div_arr)
 
 
 train_plot_arr_allloss = []
 valid_plot_arr_allloss = []
+
 
 
 if modality_type != 2:
@@ -50,6 +52,12 @@ if modality_type != 2:
 else :
 
     model = new_resnet_6d.resnet34_audio(pretrained=resnet_pretrained,num_output=4)
+
+#
+# if train_stage == 2:
+#     model_name = "./models/step1_pre_useSence_50.model"
+#     model = torch.load(model_name).to("cuda:1")
+
 
 
 model = model.cuda()
@@ -77,24 +85,19 @@ rfc_c_params = list(map(id, model.rfc_c.parameters()))
 rfc_o_params = list(map(id, model.rfc_o.parameters()))
 rfc_i_params = list(map(id, model.rfc_i.parameters()))
 
-base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
-                     +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
-                     model.parameters())
+fc_e_params = list(map(id, model.fc_e.parameters()))
+fc_n_params = list(map(id, model.fc_n.parameters()))
+fc_a_params = list(map(id, model.fc_a.parameters()))
+fc_c_params = list(map(id, model.fc_c.parameters()))
+fc_o_params = list(map(id, model.fc_o.parameters()))
+fc_i_params = list(map(id, model.fc_i.parameters()))
 
-optimizer = torch.optim.Adam([{'params': base_params},
-                              {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.featconv_a.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.featconv_c.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.featconv_o.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.featconv_i.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_e.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_n.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
-                             {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100}], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
-
+# base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
+#                      +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
+#                      model.parameters())
+#
+# # 表示的是  featconv_e  rfc_e 重点学习  其余的 不重点学习
+#
 # optimizer = torch.optim.Adam([{'params': base_params},
 #                               {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
 #                               {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
@@ -107,24 +110,83 @@ optimizer = torch.optim.Adam([{'params': base_params},
 #                               {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
 #                               {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
 #                               {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100}],
-#                              lr=learning_rate,
-#                              betas=[0.5, 0.999], weight_decay=weight_decay)
+#                              {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100}], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
 
 
 
-# optimizer_classify = torch.optim.SGD([
-#                              {'params': model.fc_e.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.fc_n.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.fc_a.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.fc_c.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.fc_o.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.fc_i.parameters(), 'lr': learning_rate * 100}],
-#                              lr=learning_rate, momentum=momentum,
-#                              weight_decay=weight_decay)
 
 
-#  typ = args.type
+# 表示的是  featconv_e  fc_e 重点学习    其余的 不重点学习
+
+# base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
+#                      # +fc_e_params+fc_n_params+fc_a_params+fc_c_params+fc_o_params+fc_i_params
+#                      +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
+#                      model.parameters())
+#
+#
+# optimizer = torch.optim.Adam([{'params': base_params},
+#                               {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.featconv_a.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.featconv_c.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.featconv_o.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.featconv_i.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_e.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_n.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
+#                               {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100},
+#                               ], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
+
+#
+# #不更新 regress  其余都是 0.002的学习率更新
+# base_params_class = filter(lambda p: id(p) not in rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
+#                      model.parameters())
+#
+# optimizer_class = torch.optim.SGD(base_params_class, lr=learning_rate * 100 , momentum=momentum)
+#
+
+
+#=====================两次训练  同步更新 ============================================
+
+base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
+                     + fc_e_params+fc_n_params+fc_a_params+fc_c_params+fc_o_params+fc_i_params
+                     +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
+                     model.parameters())
+
+# 第二次训练不重点学习  class
+optimizer = torch.optim.Adam([{'params': base_params},
+                              {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.featconv_a.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.featconv_c.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.featconv_o.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.featconv_i.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_e.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_n.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100},
+                              {'params': model.fc_e.parameters(), 'lr': learning_rate * 1},
+                              {'params': model.fc_n.parameters(), 'lr': learning_rate * 1},
+                              {'params': model.fc_a.parameters(), 'lr': learning_rate * 1},
+                              {'params': model.fc_c.parameters(), 'lr': learning_rate * 1},
+                              {'params': model.fc_o.parameters(), 'lr': learning_rate * 1},
+                              {'params': model.fc_i.parameters(), 'lr': learning_rate * 1},
+                              ], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
+
+
+# regress 不更新  其余都是 0.002的学习率更新
+base_params_class = filter(lambda p: id(p) not in rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
+                     model.parameters())
+
+optimizer_class = torch.optim.SGD([{'params': base_params}], lr=learning_rate * 100 , momentum=momentum)
+
+
+
+
 
 #  data preparation
 
@@ -155,9 +217,11 @@ def train(data_loader, epoch):
 
 
     for batch, (arr, choice_frame, name, cls_labels, reg_labels) in enumerate(data_loader):
-        model.train()
 
-        optimizer.zero_grad()
+
+
+
+        model.train()
 
 
         el, nl, al, cl, ol, il = reg_labels
@@ -245,8 +309,7 @@ def train(data_loader, epoch):
 
         cls_loss = lc_e + lc_n + lc_a + lc_c + lc_o + lc_i
 
-        #cls_loss.backward(retain_graph=True)
-        #optimizer_classify.step()
+
 
         # 回归损失
         reg_loss = loss_e + loss_n + loss_a + loss_c + loss_o + loss_i
@@ -259,9 +322,17 @@ def train(data_loader, epoch):
             #running_loss = cls_loss * 200  + reg_loss
 
         # running_loss = cls_loss
+        optimizer_class.zero_grad()
+
+        cls_loss.backward(retain_graph=True)
+        optimizer_class.step()
+
+        optimizer.zero_grad()
 
         running_loss.backward()
+
         optimizer.step()
+
 
         total_closs = total_closs + cls_loss.item()/train_batch_size
         total_rloss = total_rloss + reg_loss.item() / train_batch_size
@@ -280,6 +351,63 @@ def train(data_loader, epoch):
     print("epoch: " + str(epoch + 1))
     print ( "=============training=====================")
     print('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (total_running_loss, total_rloss, total_closs,))
+
+def train_step1(data_loader, epoch):
+
+
+    total_closs = 0.0
+
+    start_time = time.time()
+
+
+    for batch, (arr, choice_frame, name, cls_labels, reg_labels) in enumerate(data_loader):
+
+        optimizer_class.zero_grad()
+
+
+        model.train()
+
+
+        el, nl, al, cl, ol, il = reg_labels
+        ecl, ncl, acl, ccl, ocl, icl = cls_labels
+        x_cls, _, _ = model(arr.cuda())
+
+        #预测的分类值
+        ec = x_cls[0]
+        nc = x_cls[1]
+        ac = x_cls[2]
+        cc = x_cls[3]
+        oc = x_cls[4]
+        ic = x_cls[5]
+
+
+        # 计算分类损失
+        lc_e = loss(ec, ecl.cuda())
+        lc_n = loss(nc, ncl.cuda())
+        lc_a = loss(ac, acl.cuda())
+        lc_c = loss(cc, ccl.cuda())
+        lc_o = loss(oc, ocl.cuda())
+        lc_i = loss(ic, icl.cuda())
+
+
+        cls_loss = lc_e + lc_n + lc_a + lc_c + lc_o + lc_i
+
+        cls_loss.backward()
+
+
+        optimizer_class.step()
+
+        total_closs = total_closs + cls_loss.item()/train_batch_size
+
+
+
+
+
+
+    print("epoch: " + str(epoch + 1))
+    print ( "=============training=====================")
+    print('total closs:  %4f ' % ( total_closs,))
+
 
 def valid(data_loader, epoch):
 
@@ -446,10 +574,7 @@ def train_image():
 
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
 
-
     print("train simple:  " + str(len(train_dataset.data_list)))
-#    print("dev simple:  " + str(len(valid_dataset.data_list)))
-
 
 
     for epoch in range(epoch_max_number):
@@ -457,9 +582,9 @@ def train_image():
         global learning_rate
 
         if useHead:
-            model_name = './models/pf_pre_useHead_%d.model' % (epoch + 1)
+            model_name = './models/567_pre_useHead_%d.model' % (epoch + 1)
         else:
-            model_name = './models/pf_pre_useSence_%d.model' % (epoch + 1)
+            model_name = './models/classAdd_567_pre_useSence_%d.model' % (epoch + 1)
 
         train(data_loader=train_dataloader, epoch=epoch)
         if not full_train:
@@ -467,10 +592,15 @@ def train_image():
 
 
         if (epoch + 1) % 10 == 0:
+
             learning_rate = change_lr(optimizer,
                                       learning_rate)  # here the reference of learning_rate is also globally changed
+            print("======================" + str(learning_rate) + "========================")
+
         if (epoch + 1) % 5 == 0:
             torch.save(model, model_name)
+
+    print(model_name)
 
     print_loss()
 
@@ -550,7 +680,7 @@ def train_text():
         y_train = train_label_vector[:, i]
         y_test = test_label_vector[:, i]
 
-        etr = ExtraTreesRegressor(n_estimators=1000,max_features=len(x_train[0]))
+        etr = ExtraTreesRegressor(n_estimators=200,max_features=len(x_train[0]))
         etr.fit(x_train, y_train)
 
         etr_y_predict = etr.predict(x_test)
@@ -789,6 +919,40 @@ def train_audio_OS_IS(data_loader, epoch):
 
 
 
+def train_image_step1():
+
+    train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
+                                                          data_list, useHead=useHead,
+                                                          modality_type=modality_type)
+
+    train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+
+
+    for epoch in range(epoch_max_number):
+
+        global learning_rate
+
+        if useHead:
+            model_name = './models/step1_pre_useHead_%d.model' % (epoch + 1)
+        else:
+            model_name = './models/step1_pre_useSence_%d.model' % (epoch + 1)
+
+        train_step1(data_loader=train_dataloader, epoch=epoch)
+
+        if (epoch + 1) % 10 == 0:
+
+            learning_rate = change_lr(optimizer_class,
+                                      learning_rate)  # here the reference of learning_rate is also globally changed
+            print("======================" + str(learning_rate) + "========================")
+
+        if (epoch + 1) % 5 == 0:
+            torch.save(model, model_name)
+
+    print(model_name)
+
+
+
+
 
 
 
@@ -840,16 +1004,43 @@ def print_loss():
     plt.show()
 
 
+
 if __name__ == '__main__':
+    #
 
-    if modality_type == 2:
-        train_audio()
-    else:
-        train_image()
-
-    print(div_arr, modality_type, resnet_pretrained)
 
     #print_loss()
+    #
+    if train_stage == 1:
+
+        if modality_type == 2:
+            train_audio()
+        else:
+            train_image_step1()
+
+    else:
+        if modality_type == 2:
+            train_audio()
+        else:
+            train_image()
+
+
+    # train_image_step1()
+    #
+    # model_name = "./models/step1_pre_useSence_50.model"
+    #
+    # model = torch.load(model_name).to("cuda:1")
+    #
+    # train_image()
+    #
+    # print(train_stage, div_arr, modality_type, resnet_pretrained)
+    #
+    if modality_type == 2:
+        test_audio_resnet()
+    else:
+        test_visual()
+
+    extra_tree_regress_eval()
 
     #===============================EDA==========================================================
 

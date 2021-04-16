@@ -1,10 +1,18 @@
 without_closs = False
 
-modality_type = 1
+train_stage = 2
+
+modality_type = 0
+
+
 full_train = True
+
+
 use_transform = False
 
+
 resnet_pretrained = True
+
 
 #div_arr =  [ 0.4, 0.5, 0.6]
 div_arr =  [0.5, 0.6, 0.7]

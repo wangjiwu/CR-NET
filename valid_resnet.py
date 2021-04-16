@@ -8,10 +8,10 @@ import time
 import math
 import sys, os
 import numpy as np
-from config import useHead,modality_type
+from config import useHead,modality_type, resnet_pretrained, full_train, div_arr
 from torch.utils.data import TensorDataset
 
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 
 test_batch_size = 100
 
@@ -122,10 +122,10 @@ def extra_tree_regress_eval():
     test_feature_vector_1 = np.load("./fusion_feature/" +'test_feature_vector' + str(1)+ '.npy',allow_pickle=True)
     test_label_vector_1 = np.load("./fusion_feature/" +'test_label_vector' + str(1)+ '.npy')
 
-    train_feature_vector_2 = np.load("./fusion_feature/" +'train_feature_vector' + str(2)+ '.npy',allow_pickle=True)
-    train_label_vector_2 = np.load("./fusion_feature/" +'train_label_vector' + str(2)+ '.npy')
-    test_feature_vector_2 = np.load("./fusion_feature/" +'test_feature_vector' + str(2)+ '.npy',allow_pickle=True)
-    test_label_vector_2 = np.load("./fusion_feature/" +'test_label_vector' + str(2)+ '.npy')
+    # train_feature_vector_2 = np.load("./fusion_feature/" +'train_feature_vector' + str(2)+ '.npy',allow_pickle=True)
+    # train_label_vector_2 = np.load("./fusion_feature/" +'train_label_vector' + str(2)+ '.npy')
+    # test_feature_vector_2 = np.load("./fusion_feature/" +'test_feature_vector' + str(2)+ '.npy',allow_pickle=True)
+    # test_label_vector_2 = np.load("./fusion_feature/" +'test_label_vector' + str(2)+ '.npy')
 
     # 简单融合  sence ： face ： audio = 7 ：5 ： 3
 
@@ -278,7 +278,7 @@ def rf_score_regress_eval():
 
 
 
-        etr = ExtraTreesRegressor(n_estimators=1000, max_features=6)
+        etr = ExtraTreesRegressor(n_estimators=200, max_features=6)
         etr.fit(x_train, y_train)
 
         etr_y_predict = etr.predict(x_test)
@@ -322,17 +322,23 @@ def test_visual ():
 
         if useHead:
 
-            model_name = './models/6000_pre_useHead_' + str(epoch_num) + '.model'
+            model_name = './models/567_pre_useHead_' + str(epoch_num) + '.model'
         else:
            #model_name = './models/pre_useSence_' + str(epoch_num) + '-0.905.model'
-            model_name = './models/pre_useSence_' + str(epoch_num) + '.model'
 
-        model = torch.load(model_name).to("cuda:0")
+           model_name = './models/classAdd_567_pre_useSence_' + str(epoch_num) + '.model'
+           #model_name = './models/4800_pre_useSence_' + str(epoch_num) + '.model'
+
+
+        model = torch.load(model_name).to("cuda:1")
 
         model.eval()
         test(test_dataloader,model , epoch, "test")
 
         test(train_dataloader, model , epoch, "train")
+
+
+    print(model_name)
 
     #extra_tree_regress_eval()
 
@@ -466,7 +472,7 @@ def test_audio():
     test_ids = TensorDataset(test_feature, test_label)
     test_dataloader = DataLoader(test_ids, batch_size=train_batch_size, shuffle=True)
 
-    epoch_num = 30
+    epoch_num = 40
 
     for epoch in range(epoch_max_number):
 
@@ -599,7 +605,7 @@ def extre_resnet_image ():
 
 if __name__ == '__main__':
     # #test_audio()
-    print('test type:' + str(modality_type))
+    print(modality_type, resnet_pretrained, full_train, div_arr)
 
     if modality_type == 2 :
         test_audio_resnet()
