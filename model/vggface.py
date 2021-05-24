@@ -98,7 +98,7 @@ def _test_image(net, names, im):
     x = tr(im)[None, ...]
     x = net(x)
 
-    print(x)
+    logger.info(x)
 
 
 def _test():
@@ -110,7 +110,7 @@ def _test():
     with torch.no_grad():
 
         _test_image(net, names, Image.open(names))
-        print()
+        logger.info()
 
 
 if __name__ == "__main__":

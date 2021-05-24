@@ -8,15 +8,14 @@ import cv2
 import os
 import numpy as np
 import torch
-from config import div_arr
+from config import div_arr,random_seclect
 
 import six.moves.cPickle as pickle
 
 
 
-
 def get_data_list_and_big_five(ds_file_root, typ):
-    # print('dataset file is ', ds_file_root)
+    # logger.info('dataset file is ', ds_file_root)
 
     with open('./dataset/%s/annotation_%s.pkl' % (typ, typ), 'rb') as fo:  # 读取pkl文件数据
         r = pickle.load(fo, encoding='bytes')
@@ -80,73 +79,134 @@ class PersonalityDataset(Dataset):
         self.useHead = useHead
         self.typ = typ
 
+
+
     def __getitem__(self, index):
 
         if self.modality_type == 0 or  self.modality_type == 1:
+            if not  random_seclect:
+                #data_path = self.dataset_path + '/videos_face/' + self.data_list[index][0]
+                filename =  self.data_list[index][0][:-4] + ".pkl"
+                data_path = self.dataset_path + '/new_extracted_image/' + filename
+                #data_path = self.dataset_path + '/extracted_image/' + filename
 
-            #data_path = self.dataset_path + '/videos_face/' + self.data_list[index][0]
-            filename =  self.data_list[index][0][:-4] + ".pkl"
-            data_path = self.dataset_path + '/new_extracted_image/' + filename
-            #data_path = self.dataset_path + '/extracted_image/' + filename
+                #data_path = self.dataset_path + '/preTrain_feature/' + filename
 
-            #data_path = self.dataset_path + '/preTrain_feature/' + filename
+                #  index indicates the order in the list and [0] means its address, see the tuple example above.
+                arr = []
 
-            #  index indicates the order in the list and [0] means its address, see the tuple example above.
-            arr = []
+                pkl_file = open(data_path, 'rb')
 
-            pkl_file = open(data_path, 'rb')
-
-            data = pickle.load(pkl_file)
-            sence_series = data["sence_series"]
-            head_series =  data["head_series"]
-            # xcount = 0
-            # for item in sence_series:
-            #     cv2.imwrite("./tmp/" + str(xcount) + '.png', item)
-            #     xcount = xcount + 1
-            #
-            # for item in head_series:
-            #     cv2.imwrite("./tmp/head_" + str(xcount) + '.png', item)
-            #     xcount = xcount + 1
+                data = pickle.load(pkl_file)
+                sence_series = data["sence_series"]
+                head_series =  data["head_series"]
 
 
-            # arr1 = [
-            #     transforms.ToTensor()(cv2.cvtColor(cv2.resize(frame, (112, 112)), cv2.COLOR_BGR2RGB)).view(3, 112, 112,
-            #                                                                                                1)
-            #     for frame in sence_series]
-            # arr2 = [
-            #     transforms.ToTensor()(cv2.cvtColor(cv2.resize(frame, (112, 112)), cv2.COLOR_BGR2RGB)).view(3, 112, 112,
-            #                                                                                                1)
-            #     for frame in head_series]
-            # xcount = 0
+                if not self.useHead:
+
+                    arr = [
+                        transforms.ToTensor()(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).view(3, 112, 112, 1)
+                        for frame in sence_series]
+                else:
+                    arr = [
+                        transforms.ToTensor()(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).view(3, 112, 112, 1)
+                        for frame in head_series]
+                arr = torch.cat(arr, dim=3)
+
+                # 4-cls
 
 
-            if not self.useHead:
+                cls_label = get_one_hot(self.data_list[index][1:])
 
-                arr = [
-                    transforms.ToTensor()(cv2.cvtColor(cv2.resize(frame, (112, 112)), cv2.COLOR_BGR2RGB)).view(3, 112, 112, 1)
-                    for frame in sence_series]
             else:
-                arr = [
-                    transforms.ToTensor()(cv2.cvtColor(cv2.resize(frame, (112, 112)), cv2.COLOR_BGR2RGB)).view(3, 112, 112, 1)
-                    for frame in head_series]
-            arr = torch.cat(arr, dim=3)
+                # data_path = self.dataset_path + '/videos/' + self.data_list[index][0]
+                # #  index indicates the order in the list and [0] means its address, see the tuple example above.
+                # arr = []
+                # frame_num = 32
+                # cap = cv2.VideoCapture(data_path)
+                # while cap.isOpened():
+                #     ret, frame = cap.read()
+                #     if ret == True:
+                #         arr.append(frame)
+                #     else:
+                #         break
+                # cap.release()
+                #
+                #
+                # if self.typ == 'train':
+                #     f = lambda n: [(lambda n, arr: n if arr == [] else random.choice(arr))(n * i / frame_num,
+                #                          range(int(n * i / frame_num), int(n * (i + 1) / frame_num)))
+                #                                                                     for i in range(frame_num)]
+                #     sl = f(len(arr))
+                #
+                #
+                #
+                #
+                # else:
+                #     sl = [int(i*math.floor(len(arr)/frame_num)) for i in range(frame_num)]
+                #
+                # arr = [arr[i] for i in sl]
 
-            # if not self.useHead:
-            #
-            #     arr = sence_series
-            #
-            # else:
-            #    arr = head_series
+                #--------------------------使用提取好的112*112
+
+                # data_path = self.dataset_path + '/videos_face/' + self.data_list[index][0]
+                filename = self.data_list[index][0][:-4] + ".pkl"
+                if self.typ == 'train':
+                    data_path = self.dataset_path + '/total_new_extracted/' + filename
+                else:
+                    data_path = self.dataset_path + '/new_extracted_image/' + filename
+
+
+                frame_num = 32
+
+                #  index indicates the order in the list and [0] means its address, see the tuple example above.
+                arr = []
+
+                pkl_file = open(data_path, 'rb')
+
+                data = pickle.load(pkl_file)
+                sence_series = data["sence_series"]
+                head_series = data["head_series"]
 
 
 
-            # arr1 = torch.cat(arr1, dim=3)
-            # arr2 = torch.cat(arr2, dim=3)
+                if self.typ == 'train':
+                    f = lambda n: [(lambda n, arr: n if arr == [] else random.choice(arr))(n * i / frame_num,
+                                         range(int(n * i / frame_num), int(n * (i + 1) / frame_num)))
+                                                                                    for i in range(frame_num)]
+                    sl = f(len(sence_series))
 
-            # 4-cls
 
 
-            cls_label = get_one_hot(self.data_list[index][1:])
+
+                else:
+                    sl = [int(i) for i in range(frame_num)]
+
+
+
+
+                if not self.useHead:
+
+
+                    arr_sence = [sence_series[i] for i in sl]
+
+                    arr = [
+                        transforms.ToTensor()(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).view(3,112,112,1)
+                        for frame in arr_sence]
+
+                else:
+                    arr_head = [head_series[i] for i in sl]
+
+                    arr = [
+                        transforms.ToTensor()(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).view(3,112,112,1)
+                        for frame in arr_head]
+                arr = torch.cat(arr, dim=3)
+
+
+
+                cls_label = get_one_hot(self.data_list[index][1:])
+
+
 
 
             return arr , [filename], self.data_list[index][0], cls_label, [x*100 for x in self.data_list[index][1:]] #, self.mean_five

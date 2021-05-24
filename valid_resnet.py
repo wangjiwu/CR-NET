@@ -7,17 +7,42 @@ import torch
 import time
 import math
 import sys, os
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
+
 import numpy as np
-from config import useHead,modality_type, resnet_pretrained, full_train, div_arr
+from config import useHead,modality_type, resnet_pretrained, full_train, div_arr, device_num
 from torch.utils.data import TensorDataset
 
-torch.cuda.set_device(1)
+torch.cuda.set_device(device_num)
 
 test_batch_size = 100
 
 true_label = []
 predict_label = []
 L1loss = torch.nn.L1Loss()
+
+import logging
+
+# 1.显示创建
+logging.basicConfig(filename='valid_logger.log', format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# 2.定义logger,设定setLevel，FileHandler，setFormatter
+logger = logging.getLogger(__name__)  # 定义一次就可以，其他地方需要调用logger,只需要直接使用logger就行了
+logger.setLevel(level=logging.INFO)  # 定义过滤级别
+filehandler = logging.FileHandler("valid_log.txt")  # Handler用于将日志记录发送至合适的目的地，如文件、终端等
+filehandler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+filehandler.setFormatter(formatter)
+
+console = logging.StreamHandler()  # 日志信息显示在终端terminal
+console.setLevel(logging.INFO)
+console.setFormatter(formatter)
+
+logger.addHandler(filehandler)
+logger.addHandler(console)
+
+
 
 def test(data_loader, model, epoch, flag):
 
@@ -27,11 +52,12 @@ def test(data_loader, model, epoch, flag):
     feature_vector = []
     label_vector = []
     pre_label_vector = []
+    model.eval()
 
     with torch.no_grad():
-
-        t = time.time()
         for batch, (arr, choice_frame, name, cls_labels, labels) in enumerate(data_loader):
+            model.eval()
+
             ecl, ncl, acl, ccl, ocl, icl = cls_labels
             el, nl, al, cl, ol, il = labels
             # e = model(arr.cuda())
@@ -52,24 +78,17 @@ def test(data_loader, model, epoch, flag):
                 feature_vector.append(x_regress_result[i].cpu().numpy())
                 label_vector.append([el[i].item()/100, nl[i].item()/100, al[i].item()/100, cl[i].item()/100, ol[i].item()/100, il[i].item()/100])
                 pre_label_vector.append([x_reg[0][i].cpu().numpy(), x_reg[1][i].cpu().numpy(),x_reg[2][i].cpu().numpy(),x_reg[3][i].cpu().numpy(),x_reg[4][i].cpu().numpy(),x_reg[5][i].cpu().numpy()])
-            # print(e.size(), n.size())
-            p_e = ec.max(1, keepdim=True)[1]
-            p_n = nc.max(1, keepdim=True)[1]
-            p_a = ac.max(1, keepdim=True)[1]
-            p_c = cc.max(1, keepdim=True)[1]
-            p_o = oc.max(1, keepdim=True)[1]
-            p_i = ic.max(1, keepdim=True)[1]
 
-            print('extr. cls. prediction data vs label ', p_e.cpu().data.view(1, -1), ecl.cpu().data)
 
-            print('extr. prediction data vs label')
-            np.set_printoptions(formatter={'float': '{: 0.1f}'.format})
-            print(torch.mul(x_reg[1], 100).squeeze(1).cpu().data.numpy())
-            print(nl.float().data.numpy())
-            print("\n\n")
 
-            print('extr. reg. prediction data vs label ', x_reg[0].cpu().data.view(1, -1),
-                  torch.mul(el, 0.01).cpu().data)
+            # logger.info('extr. prediction data vs label')
+            # np.set_printoptions(formatter={'float': '{: 0.1f}'.format})
+            # logger.info(torch.mul(x_reg[1], 100).squeeze(1).cpu().data.numpy())
+            # logger.info(nl.float().data.numpy())
+            # logger.info("\n\n")
+            #
+            # logger.info('extr. reg. prediction data vs label ', x_reg[0].cpu().data.view(1, -1),
+            #       torch.mul(el, 0.01).cpu().data)
 
             for i in range(0, 6):
                 acc[i] += torch.sum(torch.div(
@@ -77,19 +96,12 @@ def test(data_loader, model, epoch, flag):
                     1
                 )).item()
 
-            print('%d batch e is' % (batch), 1 - acc[0] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch n is' % (batch), 1 - acc[1] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch a is' % (batch), 1 - acc[2] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch c is' % (batch), 1 - acc[3] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch o is' % (batch), 1 - acc[4] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch i is' % (batch), 1 - acc[5] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
 
     feature_vector = np.array(feature_vector)
     np.save("./fusion_feature/" + flag +'_feature_vector' + str(modality_type)+ '.npy', feature_vector)
 
     label_vector = np.array(label_vector)
     np.save("./fusion_feature/" + flag + '_label_vector' + str(modality_type)+ '.npy', label_vector)
-
     pre_label_vector = np.array(pre_label_vector)
     np.save("./fusion_feature/" + flag + '_pre_label_vector' + str(modality_type) + '.npy', pre_label_vector)
 
@@ -103,12 +115,15 @@ def test(data_loader, model, epoch, flag):
         for j in range(len(x)):
             error.append(abs(x[j] - y[j]))
 
-        #print(np.mean(error))
+        #logger.info(np.mean(error))
         result.append(np.mean(error))
 
-    print(result)
-    print(1 - np.mean(result[0:5]))
-    print(result[5])
+
+
+
+    logger.info(result)
+    logger.info(1 - np.mean(result[0:5]))
+    logger.info(result[5])
 
 def extra_tree_regress_eval():
 
@@ -122,78 +137,211 @@ def extra_tree_regress_eval():
     test_feature_vector_1 = np.load("./fusion_feature/" +'test_feature_vector' + str(1)+ '.npy',allow_pickle=True)
     test_label_vector_1 = np.load("./fusion_feature/" +'test_label_vector' + str(1)+ '.npy')
 
-    # train_feature_vector_2 = np.load("./fusion_feature/" +'train_feature_vector' + str(2)+ '.npy',allow_pickle=True)
-    # train_label_vector_2 = np.load("./fusion_feature/" +'train_label_vector' + str(2)+ '.npy')
-    # test_feature_vector_2 = np.load("./fusion_feature/" +'test_feature_vector' + str(2)+ '.npy',allow_pickle=True)
-    # test_label_vector_2 = np.load("./fusion_feature/" +'test_label_vector' + str(2)+ '.npy')
+    train_feature_vector_2 = np.load("./fusion_feature/" +'train_feature_vector' + str(2)+ '.npy',allow_pickle=True)
+    train_label_vector_2 = np.load("./fusion_feature/" +'train_label_vector' + str(2)+ '.npy')
+    test_feature_vector_2 = np.load("./fusion_feature/" +'test_feature_vector' + str(2)+ '.npy',allow_pickle=True)
+    test_label_vector_2 = np.load("./fusion_feature/" +'test_label_vector' + str(2)+ '.npy')
+
+
 
     # 简单融合  sence ： face ： audio = 7 ：5 ： 3
 
-    # train_feature_vector = train_feature_vector_0 * 0.7  +  train_feature_vector_1 * 0.5
-    # train_label_vector =  train_label_vector_0
-    # test_feature_vector = test_feature_vector_0 * 0.7  + test_feature_vector_1 * 0.5
-    # test_label_vector = test_label_vector_0
-
-    if modality_type == 0:
-        train_feature_vector = train_feature_vector_0 * 1
-        train_label_vector =  train_label_vector_0 * 1
-        test_feature_vector = test_feature_vector_0 * 1
-        test_label_vector = test_label_vector_0 * 1
-
-    elif modality_type == 1:
-        train_feature_vector = train_feature_vector_1 * 1
-        train_label_vector = train_label_vector_1 * 1
-        test_feature_vector = test_feature_vector_1 * 1
-        test_label_vector = test_label_vector_1 * 1
-    elif modality_type == 2:
-        train_feature_vector = train_feature_vector_2 * 1
-        train_label_vector = train_label_vector_2 * 1
-        test_feature_vector = test_feature_vector_2 * 1
-        test_label_vector = test_label_vector_2 * 1
+    # if modality_type == 0:
+    #     train_feature_vector = train_feature_vector_0 * 1
+    #     train_label_vector =  train_label_vector_0 * 1
+    #     test_feature_vector = test_feature_vector_0 * 1
+    #     test_label_vector = test_label_vector_0 * 1
+    #
+    # elif modality_type == 1:
+    #     train_feature_vector = train_feature_vector_1 * 1
+    #     train_label_vector = train_label_vector_1 * 1
+    #     test_feature_vector = test_feature_vector_1 * 1
+    #     test_label_vector = test_label_vector_1 * 1
+    # elif modality_type == 2:
+    #     train_feature_vector = train_feature_vector_2 * 1
+    #     train_label_vector = train_label_vector_2 * 1
+    #     test_feature_vector = test_feature_vector_2 * 1
+    #     test_label_vector = test_label_vector_2 * 1
 
     from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 
     from sklearn.preprocessing import StandardScaler
 
-    print("train_feature_arr:       " + str(len(train_feature_vector)))
-    print("train_feature_score:     " + str(len(train_label_vector)))
-    print("test_feature_arr:        " + str(len(test_feature_vector)))
-    print("test_feature_score:      " + str(len(test_label_vector)))
+    etr_y_predict_0 = []
+    etr_y_predict_1 = []
+    etr_y_predict_2 = []
 
+    #================================================================
+
+
+
+    # test_modality = "0"
+    # logger.info("test_modality: " + test_modality)
+    #
+    # logger.info("train_feature_arr:       " + str(len(train_feature_vector)))
+    # logger.info("train_feature_score:     " + str(len(train_label_vector)))
+    # logger.info("test_feature_arr:        " + str(len(test_feature_vector)))
+    # logger.info("test_feature_score:      " + str(len(test_label_vector)))
 
     result_list = []
 
-    for i in range(6):
 
-        ss_x = StandardScaler()
+    import  random
 
-        x_train = ss_x.fit_transform(train_feature_vector[:,:,i])
-        x_test = ss_x.transform(test_feature_vector[:,:,i])
+    for i in range(1):
 
-        y_train = train_label_vector[:,i]
-        y_test =  test_label_vector[:,i]
+        weight = [5, 7, 3]
+        logger.info(weight)
+        for i in range(6):
+
+            ss_x = StandardScaler()
+
+            x_train = ss_x.fit_transform(train_feature_vector_0[:,:,i]) * weight[0] \
+                      + ss_x.fit_transform(train_feature_vector_1[:,:,i]) * weight[1]\
+                      + ss_x.fit_transform(train_feature_vector_2[:,:,i])  * weight[2]
+
+            x_train = ss_x.fit_transform(x_train)
+
+            x_test = ss_x.fit_transform(test_feature_vector_0[:,:,i]) * weight[0] \
+                      + ss_x.fit_transform(test_feature_vector_1[:,:,i]) * weight[1]\
+                      + ss_x.fit_transform(test_feature_vector_2[:,:,i])  * weight[2]
+
+            x_test = ss_x.fit_transform(x_test)
+
+            y_train = train_label_vector_0[:,i]
+            y_test =  test_label_vector_0[:,i]
 
 
+            etr = ExtraTreesRegressor(n_estimators=200, max_features = 512)
+            etr.fit(x_train, y_train)
 
+            etr_y_predict = etr.predict(x_test)
+            etr_y_predict_0.append(etr_y_predict)
 
-        etr = ExtraTreesRegressor(n_estimators=200, max_features = 512)
-        etr.fit(x_train, y_train)
+            result = 0
 
-        etr_y_predict = etr.predict(x_test)
+            for i in range(len(etr_y_predict)):
+                result = result + abs(etr_y_predict[i] - y_test[i])
 
-        result = 0
+            result =  result / len(etr_y_predict)
 
-        for i in range(len(etr_y_predict)):
-            result = result + abs(etr_y_predict[i] - y_test[i])
+            logger.info("extra tree eval: "  + str(1 - result))
 
-        result =  result / len(etr_y_predict)
+            result_list.append(1 - result)
 
-        print("extra tree eval: "  + str(1 - result))
+        # etr_y_predict_0 = np.array(etr_y_predict_0)
+        # etr_y_predict_0 = np.swapaxes(etr_y_predict_0, 1, 0)
+        logger.info(result_list)
+        logger.info(np.mean(result_list[0:5]))
+        logger.info(result_list[5])
 
-        result_list.append(1 - result)
-    print(result_list)
-    print(np.mean(result_list[0:5]))
-    print(result_list[5])
+    # pre_label_vector = np.array(etr_y_predict_0)
+    # np.save("./fusion_feature/" + 'etr_pre_score_' + str(0) + '.npy', pre_label_vector)
+    #
+    # #================================================================
+    #
+    #
+    # train_label_vector = train_label_vector_1
+    # train_feature_vector = train_feature_vector_1
+    #
+    # test_modality = "1"
+    # logger.info("test_modality: " + test_modality)
+    #
+    # logger.info("train_feature_arr:       " + str(len(train_feature_vector)))
+    # logger.info("train_feature_score:     " + str(len(train_label_vector)))
+    # logger.info("test_feature_arr:        " + str(len(test_feature_vector)))
+    # logger.info("test_feature_score:      " + str(len(test_label_vector)))
+    #
+    # result_list = []
+    #
+    # for i in range(6):
+    #
+    #     ss_x = StandardScaler()
+    #
+    #     x_train = ss_x.fit_transform(train_feature_vector[:, :, i])
+    #     x_test = ss_x.transform(test_feature_vector[:, :, i])
+    #
+    #     y_train = train_label_vector[:, i]
+    #     y_test = test_label_vector[:, i]
+    #
+    #     etr = ExtraTreesRegressor(n_estimators=200, max_features=512)
+    #     etr.fit(x_train, y_train)
+    #
+    #     etr_y_predict = etr.predict(x_test)
+    #     etr_y_predict_1.append(etr_y_predict)
+    #     result = 0
+    #
+    #     for i in range(len(etr_y_predict)):
+    #         result = result + abs(etr_y_predict[i] - y_test[i])
+    #
+    #     result = result / len(etr_y_predict)
+    #
+    #     logger.info("extra tree eval: " + str(1 - result))
+    #
+    #     result_list.append(1 - result)
+    #
+    # etr_y_predict_1 = np.array(etr_y_predict_1)
+    # etr_y_predict_1 = np.swapaxes(etr_y_predict_1, 1, 0)
+    # pre_label_vector = np.array(etr_y_predict_1)
+    # np.save("./fusion_feature/" + 'etr_pre_score_' + str(1) + '.npy', pre_label_vector)
+    #
+    # logger.info(result_list)
+    # logger.info(np.mean(result_list[0:5]))
+    # logger.info(result_list[5])
+    #
+    #
+    # #==============================================================
+    #
+    #
+    # train_label_vector = train_label_vector_2
+    # train_feature_vector = train_feature_vector_2
+    #
+    # test_modality = "2"
+    # logger.info("test_modality: " + test_modality)
+    #
+    # logger.info("train_feature_arr:       " + str(len(train_feature_vector)))
+    # logger.info("train_feature_score:     " + str(len(train_label_vector)))
+    # logger.info("test_feature_arr:        " + str(len(test_feature_vector)))
+    # logger.info("test_feature_score:      " + str(len(test_label_vector)))
+    #
+    # result_list = []
+    #
+    # for i in range(6):
+    #
+    #     ss_x = StandardScaler()
+    #
+    #     x_train = ss_x.fit_transform(train_feature_vector[:, :, i])
+    #     x_test = ss_x.transform(test_feature_vector[:, :, i])
+    #
+    #     y_train = train_label_vector[:, i]
+    #     y_test = test_label_vector[:, i]
+    #
+    #     etr = ExtraTreesRegressor(n_estimators=200, max_features=512)
+    #     etr.fit(x_train, y_train)
+    #
+    #     etr_y_predict = etr.predict(x_test)
+    #     etr_y_predict_2.append(etr_y_predict)
+    #
+    #     result = 0
+    #
+    #     for i in range(len(etr_y_predict)):
+    #         result = result + abs(etr_y_predict[i] - y_test[i])
+    #
+    #     result = result / len(etr_y_predict)
+    #
+    #     logger.info("extra tree eval: " + str(1 - result))
+    #
+    #     result_list.append(1 - result)
+    #
+    # etr_y_predict_2 = np.array(etr_y_predict_2)
+    # etr_y_predict_2 = np.swapaxes(etr_y_predict_2, 1, 0)
+    # pre_label_vector = np.array(etr_y_predict_2)
+    # np.save("./fusion_feature/" + 'etr_pre_score_' + str(2) + '.npy', pre_label_vector)
+    #
+    # logger.info(result_list)
+    # logger.info(np.mean(result_list[0:5]))
+    # logger.info(result_list[5])
+
 
 def rf_score_regress_eval():
 
@@ -217,34 +365,34 @@ def rf_score_regress_eval():
 
     # 简单融合  sence ： face ： audio = 7 ：5 ： 3
 
-    # train_feature_vector = train_feature_vector_0 * 0.7 + train_feature_vector_2 * 0.3
-    # train_label_vector =  train_label_vector_0 * 0.7 + train_label_vector_2 * 0.3
-    # test_feature_vector = test_feature_vector_0 * 0.7 + test_feature_vector_2 * 0.3
-    # test_label_vector = test_label_vector_0 * 0.7 + test_label_vector_2 * 0.3
+    # ss_x.fit_transform()
+
+    train_feature_vector= train_feature_vector_0 * 0.7 + train_feature_vector_1 * 0.5 + train_feature_vector_2 * 0.3
+    train_label_vector  =  train_label_vector_0 * 0.7 + train_label_vector_1 * 0.5 + train_label_vector_2 * 0.3
+    test_feature_vector = test_feature_vector_0 * 0.7 + test_feature_vector_1 * 0.5 + test_feature_vector_2 * 0.3
+    test_label_vector   = test_label_vector_0 * 0.7 + test_label_vector_1 * 0.5 + test_label_vector_2 * 0.3
 
 
 
 
-    # train_feature_vector = np.concatenate([train_feature_vector_0, train_feature_vector_1], axis=1)
-    # test_feature_vector = np.concatenate([test_feature_vector_0, test_feature_vector_1], axis=1)
 
-    if modality_type == 0:
-        train_feature_vector = train_feature_vector_0
-        test_feature_vector = test_feature_vector_0
-        train_label_vector =  train_label_vector_0
-        test_label_vector = test_label_vector_0
-
-    elif modality_type == 1:
-        train_feature_vector = train_feature_vector_1
-        test_feature_vector = test_feature_vector_1
-        train_label_vector = train_label_vector_1
-        test_label_vector = test_label_vector_1
-
-    elif modality_type == 2:
-        train_feature_vector = train_feature_vector_2
-        test_feature_vector = test_feature_vector_2
-        train_label_vector = train_label_vector_2
-        test_label_vector = test_label_vector_2
+    # if modality_type == 0:
+    #     train_feature_vector = train_feature_vector_0
+    #     test_feature_vector = test_feature_vector_0
+    #     train_label_vector =  train_label_vector_0
+    #     test_label_vector = test_label_vector_0
+    #
+    # elif modality_type == 1:
+    #     train_feature_vector = train_feature_vector_1
+    #     test_feature_vector = test_feature_vector_1
+    #     train_label_vector = train_label_vector_1
+    #     test_label_vector = test_label_vector_1
+    #
+    # elif modality_type == 2:
+    #     train_feature_vector = train_feature_vector_2
+    #     test_feature_vector = test_feature_vector_2
+    #     train_label_vector = train_label_vector_2
+    #     test_label_vector = test_label_vector_2
 
 
 
@@ -252,10 +400,10 @@ def rf_score_regress_eval():
 
     from sklearn.preprocessing import StandardScaler
 
-    print("train_feature_arr:       " + str(len(train_feature_vector)))
-    print("train_feature_score:     " + str(len(train_label_vector)))
-    print("test_feature_arr:        " + str(len(test_feature_vector)))
-    print("test_feature_score:      " + str(len(test_label_vector)))
+    logger.info("train_feature_arr:       " + str(len(train_feature_vector)))
+    logger.info("train_feature_score:     " + str(len(train_label_vector)))
+    logger.info("test_feature_arr:        " + str(len(test_feature_vector)))
+    logger.info("test_feature_score:      " + str(len(test_label_vector)))
 
 
     result_list = []
@@ -290,60 +438,53 @@ def rf_score_regress_eval():
 
         result =  result / len(etr_y_predict)
 
-        print("extra tree eval: "  + str(1 - result))
+        logger.info("extra tree eval: "  + str(1 - result))
 
         result_list.append(1 - result)
 
-    print(result_list)
-    print(np.mean(result_list[0:5]))
-    print(result_list[5])
+    logger.info(result_list)
+    logger.info(np.mean(result_list[0:5]))
+    logger.info(result_list[5])
 
-def test_visual ():
+def test_visual (model_name, modality_type_test):
 
     epoch_max_number = 1
+    if modality_type_test == 0:
+        useHead = False
+    elif modality_type_test == 1:
+        useHead = True
 
     data_list = get_data_list_and_big_five('./dataset/train', 'train')
 
 
     train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
                                                           data_list, useHead=useHead,
-                                                          modality_type=modality_type)
+                                                          modality_type=modality_type_test)
     train_dataloader = DataLoader(train_dataset, batch_size=test_batch_size, shuffle=False)
 
     data_list = get_data_list_and_big_five('./dataset/test', 'test')
     test_dataset = PersonalityDataset.PersonalityDataset('./dataset/test', 'test',
                                                          data_list, useHead=useHead,
-                                                         modality_type=modality_type)
+                                                         modality_type=modality_type_test)
     test_dataloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
 
-    epoch_num = 30
-
-    for epoch in range(epoch_max_number):
-
-        if useHead:
-
-            model_name = './models/567_pre_useHead_' + str(epoch_num) + '.model'
-        else:
-           #model_name = './models/pre_useSence_' + str(epoch_num) + '-0.905.model'
-
-           model_name = './models/classAdd_567_pre_useSence_' + str(epoch_num) + '.model'
-           #model_name = './models/4800_pre_useSence_' + str(epoch_num) + '.model'
 
 
-        model = torch.load(model_name).to("cuda:1")
-
-        model.eval()
-        test(test_dataloader,model , epoch, "test")
-
-        test(train_dataloader, model , epoch, "train")
+    model = torch.load(model_name).to("cuda:2")
 
 
-    print(model_name)
+
+    model.eval()
+    test(test_dataloader,model , 0, "test")
+
+    test(train_dataloader, model , 0, "train")
+
+    logger.info(model_name)
 
     #extra_tree_regress_eval()
 
 def test_audio_eval(data_loader, model, epoch, flag):
-    print('test')
+    logger.info('test')
 
     acc = [0., 0., 0., 0., 0., 0]
 
@@ -380,7 +521,7 @@ def test_audio_eval(data_loader, model, epoch, flag):
                 feature_vector.append(x_regress_result[i].cpu().numpy())
                 label_vector.append([el[i].item()/100, nl[i].item()/100, al[i].item()/100, cl[i].item()/100, ol[i].item()/100, il[i].item()/100])
                 pre_label_vector.append([x_reg[0][i].cpu().numpy(), x_reg[1][i].cpu().numpy(),x_reg[2][i].cpu().numpy(),x_reg[3][i].cpu().numpy(),x_reg[4][i].cpu().numpy(),x_reg[5][i].cpu().numpy()])
-            # print(e.size(), n.size())
+            # logger.info(e.size(), n.size())
             p_e = ec.max(1, keepdim=True)[1]
             p_n = nc.max(1, keepdim=True)[1]
             p_a = ac.max(1, keepdim=True)[1]
@@ -388,16 +529,16 @@ def test_audio_eval(data_loader, model, epoch, flag):
             p_o = oc.max(1, keepdim=True)[1]
             p_i = ic.max(1, keepdim=True)[1]
 
-            print('extr. cls. prediction data vs label ', p_e.cpu().data.view(1, -1), ecl.cpu().data)
-
-            print('extr. prediction data vs label')
-            np.set_printoptions(formatter={'float': '{: 0.1f}'.format})
-            print(torch.mul(x_reg[1], 100).squeeze(1).cpu().data.numpy())
-            print(nl.float().data.numpy())
-            print("\n\n")
-
-            print('extr. reg. prediction data vs label ', x_reg[0].cpu().data.view(1, -1),
-                  torch.mul(el, 0.01).cpu().data)
+            # logger.info('extr. cls. prediction data vs label ', p_e.cpu().data.view(1, -1), ecl.cpu().data)
+            #
+            # logger.info('extr. prediction data vs label')
+            # np.set_logger.infooptions(formatter={'float': '{: 0.1f}'.format})
+            # logger.info(torch.mul(x_reg[1], 100).squeeze(1).cpu().data.numpy())
+            # logger.info(nl.float().data.numpy())
+            # logger.info("\n\n")
+            #
+            # logger.info('extr. reg. prediction data vs label ', x_reg[0].cpu().data.view(1, -1),
+            #       torch.mul(el, 0.01).cpu().data)
 
             for i in range(0, 6):
                 acc[i] += torch.sum(torch.div(
@@ -405,12 +546,12 @@ def test_audio_eval(data_loader, model, epoch, flag):
                     1
                 )).item()
 
-            print('%d batch e is' % (batch), 1 - acc[0] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch n is' % (batch), 1 - acc[1] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch a is' % (batch), 1 - acc[2] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch c is' % (batch), 1 - acc[3] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch o is' % (batch), 1 - acc[4] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
-            print('%d batch i is' % (batch), 1 - acc[5] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch e is' % (batch), 1 - acc[0] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch n is' % (batch), 1 - acc[1] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch a is' % (batch), 1 - acc[2] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch c is' % (batch), 1 - acc[3] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch o is' % (batch), 1 - acc[4] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
+            logger.info('%d batch i is' % (batch), 1 - acc[5] / ((batch + 1) * test_batch_size), 'time ', time.time() - t)
 
     feature_vector = np.array(feature_vector)
     np.save(flag +'_feature_vector' + str(modality_type)+ '.npy', feature_vector)
@@ -429,7 +570,7 @@ def test_audio_eval(data_loader, model, epoch, flag):
         for j in range(len(x)):
             error.append(abs(x[j] - y[j]))
 
-        print(np.mean(error))
+        logger.info(np.mean(error))
 
 def test_audio():
     import scipy.io as scio
@@ -440,14 +581,14 @@ def test_audio():
     data = scio.loadmat(path)
 
     # 读取数据 和训练集视频对应 6000个
-    #print (data["OS_IS13"][0][0][0])
+    #logger.info (data["OS_IS13"][0][0][0])
 
     dict_audio_data = {}
 
     for item in  range(8000):
         file_name = data["OS_IS13"][0][0][0][item][0][0]
-        # print(file_name)
-        # print(data["OS_IS13"][0][0][1][item])
+        # logger.info(file_name)
+        # logger.info(data["OS_IS13"][0][0][1][item])
         dict_audio_data[file_name] = data["OS_IS13"][0][0][1][item]
 
     data_list = get_data_list_and_big_five('./dataset/train', 'train')
@@ -491,47 +632,37 @@ def test_audio():
 
     #extra_tree_regress_eval()
 
-def test_audio_resnet ():
+def test_audio_resnet (model_name):
     epoch_max_number = 1
 
     data_list = get_data_list_and_big_five('./dataset/train', 'train')
     train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
                                                           data_list, useHead=useHead,
-                                                          modality_type=modality_type)
+                                                          modality_type=2)
     train_dataloader = DataLoader(train_dataset, batch_size=test_batch_size, shuffle=False)
 
     data_list = get_data_list_and_big_five('./dataset/test', 'test')
     test_dataset = PersonalityDataset.PersonalityDataset('./dataset/test', 'test',
                                                          data_list, useHead=useHead,
-                                                         modality_type=modality_type)
+                                                         modality_type=2)
     test_dataloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
 
-    epoch_num = 50
 
     for epoch in range(epoch_max_number):
 
 
-        model_name = './models/audio24k_' + str(epoch_num) + '.model'
 
-        model = torch.load(model_name).to("cuda:0")
+        model = torch.load(model_name).to("cuda:2")
 
         model.eval()
-        test(test_dataloader,model , epoch, "test")
+        test(test_dataloader,model , 0, "test")
 
-        test(train_dataloader, model , epoch, "train")
+        test(train_dataloader, model , 0, "train")
 
     #extra_tree_regress_eval()
 
 def extre_resnet_image ():
     test_batch_size = 1  # 20
-    epoch_max_number = 1
-
-    # data_list = get_data_list_and_big_five('./dataset/train', 'train')
-    # train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
-    #                                                       data_list, useHead=False,
-    #                                                       modality_type=0)
-    # train_dataloader = DataLoader(train_dataset, batch_size=test_batch_size, shuffle=False)
-
 
 
     data_list = get_data_list_and_big_five('./dataset/test', 'test')
@@ -566,7 +697,7 @@ def extre_resnet_image ():
     #         data["head_series"] = x_feature_face
     #
     #         pickle.dump(data, output)
-    #         print(count)
+    #         logger.info(count)
     #         count  = count + 1
     #
 
@@ -589,7 +720,7 @@ def extre_resnet_image ():
             data["head_series"] = x_feature_face
 
             pickle.dump(data, output)
-            print(count)
+            logger.info(count)
             count  = count + 1
 
 
@@ -604,16 +735,55 @@ def extre_resnet_image ():
 
 
 if __name__ == '__main__':
-    # #test_audio()
-    print(modality_type, resnet_pretrained, full_train, div_arr)
+    # # #test_audio()
 
-    if modality_type == 2 :
-        test_audio_resnet()
-    else:
-        test_visual()
+    logger.info({
+                 "useHead": useHead,
+                 "modality_type": modality_type,
+                 "device_num": device_num,
+                 "resnet_pretrained": resnet_pretrained,
+                 "full_train": full_train,
+                 "div_arr": div_arr,
+                 })
 
+    # test_audio_resnet("./models/best_shit_0.89639_modality_type_2.model")
+    # test_visual("./models/best_shit_0.91438.model", 1)
+    test_visual("./models/best_shit_0.91160_modality_type_0.model", 0)
+
+    #rf_score_regress_eval()
     extra_tree_regress_eval()
-    # rf_score_regress_eval()
 
-    #extre_resnet_image()
+    #
+    # test_label_vector_0 = np.load("./fusion_feature/" +'etr_pre_score_' + str(0)+ '.npy')
+    # test_label_vector_1 = np.load("./fusion_feature/" +'etr_pre_score_' + str(1)+ '.npy')
+    # test_label_vector_2 = np.load("./fusion_feature/" +'etr_pre_score_' + str(2)+ '.npy')
+    #
+    # result_list = []
+    #
+    # weight = [0.7,0.5,0.3]
+    #
+    # etr_y_predict = test_label_vector_0 * weight[0] + test_label_vector_1 *  weight[1]  + test_label_vector_2 * weight[2]
+    #
+    # etr_y_predict = etr_y_predict / sum(weight)
+    #
+    # # etr_y_predict = test_label_vector_2
+    #
+    # etr_y_predict = np.squeeze(etr_y_predict)
+    #
+    # y_test = np.load("./fusion_feature/" +'test_label_vector' + str(0)+ '.npy')
+    #
+    # result = 0
+    #
+    # for i in range(len(etr_y_predict)):
+    #     result = result + abs(etr_y_predict[i] - y_test[i])
+    #
+    # result = result / len(etr_y_predict)
+    #
+    # logger.info("extra tree eval: " + str(1 - result))
+    #
+    # result_list = 1 - result
+    # logger.info(result_list)
+    # logger.info(np.mean(result_list[0:5]))
+    # logger.info(result_list[5])
+
 

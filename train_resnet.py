@@ -9,15 +9,44 @@ import matplotlib.pyplot as plt
 from new_resnet_6d import ResNet_audio, ResNet_old_pretrain
 import time
 from BellLoss import BellingLoss
-from config import useHead, without_closs,modality_type, resnet_pretrained,full_train,div_arr, train_stage
+from config import useHead, without_closs,modality_type, resnet_pretrained,full_train,div_arr, fix_step1_weight,train_stage,device_num,random_seclect
 from valid_resnet import test_audio_resnet ,test_visual,extra_tree_regress_eval
 import pickle
 import sys, os,random
 import argparse
 import  csv
+from new_resnet_6d import get_parameter_number
+
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
+
+from sklearn.preprocessing import StandardScaler
+
+import logging
+
+# 1.显示创建
+logging.basicConfig(filename='step2_logger.log', format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# 2.定义logger,设定setLevel，FileHandler，setFormatter
+logger = logging.getLogger(__name__)  # 定义一次就可以，其他地方需要调用logger,只需要直接使用logger就行了
+logger.setLevel(level=logging.INFO)  # 定义过滤级别
+filehandler = logging.FileHandler("step2_log" + "_modality_type_" + str(modality_type) +  ".txt")  # Handler用于将日志记录发送至合适的目的地，如文件、终端等
+filehandler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+filehandler.setFormatter(formatter)
+
+console = logging.StreamHandler()  # 日志信息显示在终端terminal
+console.setLevel(logging.INFO)
+console.setFormatter(formatter)
+
+logger.addHandler(filehandler)
+logger.addHandler(console)
 
 
+if modality_type == 2:
+    BAST_RESULT = 0.895
+else:
+    BAST_RESULT = 0.910
 
 
 epoch_max_number = 50
@@ -28,41 +57,65 @@ train_batch_size = 30
 
 learning_rate = 0.00002
 
-
 momentum = 0.9
 num_classes = 4
 weight_decay = 0.005
-torch.cuda.set_device(1)
+torch.cuda.set_device(device_num)
 
 
-print(modality_type, resnet_pretrained,full_train, div_arr)
+logger.info({"fix_step1_weight": fix_step1_weight,
+             "random_seclect":random_seclect,
+             "BAST_RESULT":BAST_RESULT,
+             "epoch_max_number":epoch_max_number,
+             "train_batch_size":train_batch_size,
+             "learning_rate":learning_rate,
+             "modality_type":modality_type,
+             "momentum":momentum,
+             "num_classes":num_classes,
+             "weight_decay":weight_decay,
+             "device_num":device_num,
+             "resnet_pretrained":resnet_pretrained,
+             "full_train":full_train,
+             "div_arr":div_arr,
+             })
+
 
 
 train_plot_arr_allloss = []
 valid_plot_arr_allloss = []
+test_plot_arr_allloss = []
 
 
 
-if modality_type != 2:
+if modality_type == 0:
 
-    model = new_resnet_6d.resnet34_old(pretrained=resnet_pretrained,num_output=4)
+    model = new_resnet_6d.resnet34_old(pretrained=False
+                                       ,num_output=4)
 
-    #model = ResNet_old_pretrain()
+    model_name = "./models/class_best_shit_14.3079_modality_type_0.pt"
+    model.load_state_dict(torch.load(model_name), False)
+    logger.info(model_name)
+elif modality_type == 1:
+
+    model = new_resnet_6d.resnet34_old(pretrained=False
+                                       ,num_output=4)
+
+    model_name = "./models/class_best_shit_13.8237_modality_type_1.pt"
+    model.load_state_dict(torch.load(model_name), False)
+    logger.info(model_name)
 
 else :
 
-    model = new_resnet_6d.resnet34_audio(pretrained=resnet_pretrained,num_output=4)
+    model = new_resnet_6d.resnet34_audio(pretrained=False,num_output=4)
 
-#
-# if train_stage == 2:
-#     model_name = "./models/step1_pre_useSence_50.model"
-#     model = torch.load(model_name).to("cuda:1")
+    model_name = "./models/class_best_shit_15.1236_modality_type_2.pt"
+    model.load_state_dict(torch.load(model_name), False)
+    logger.info(model_name)
+
 
 
 
 model = model.cuda()
-print("modality_type: " + str(modality_type))
-print("useHead? :" +  str(useHead))
 
 
 #  defining the criterion & optimizer
@@ -85,77 +138,10 @@ rfc_c_params = list(map(id, model.rfc_c.parameters()))
 rfc_o_params = list(map(id, model.rfc_o.parameters()))
 rfc_i_params = list(map(id, model.rfc_i.parameters()))
 
-fc_e_params = list(map(id, model.fc_e.parameters()))
-fc_n_params = list(map(id, model.fc_n.parameters()))
-fc_a_params = list(map(id, model.fc_a.parameters()))
-fc_c_params = list(map(id, model.fc_c.parameters()))
-fc_o_params = list(map(id, model.fc_o.parameters()))
-fc_i_params = list(map(id, model.fc_i.parameters()))
-
-# base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
-#                      +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
-#                      model.parameters())
-#
-# # 表示的是  featconv_e  rfc_e 重点学习  其余的 不重点学习
-#
-# optimizer = torch.optim.Adam([{'params': base_params},
-#                               {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_a.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_c.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_o.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_i.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_e.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_n.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
-#                              {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100}], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
-
-
-
-
-
-# 表示的是  featconv_e  fc_e 重点学习    其余的 不重点学习
-
-# base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
-#                      # +fc_e_params+fc_n_params+fc_a_params+fc_c_params+fc_o_params+fc_i_params
-#                      +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
-#                      model.parameters())
-#
-#
-# optimizer = torch.optim.Adam([{'params': base_params},
-#                               {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_a.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_c.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_o.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.featconv_i.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_e.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_n.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
-#                               {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100},
-#                               ], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
-
-#
-# #不更新 regress  其余都是 0.002的学习率更新
-# base_params_class = filter(lambda p: id(p) not in rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
-#                      model.parameters())
-#
-# optimizer_class = torch.optim.SGD(base_params_class, lr=learning_rate * 100 , momentum=momentum)
-#
-
-
-#=====================两次训练  同步更新 ============================================
-
 base_params = filter(lambda p: id(p) not in featconv_e_params+featconv_n_params+featconv_a_params+featconv_c_params+featconv_o_params+featconv_i_params
-                     + fc_e_params+fc_n_params+fc_a_params+fc_c_params+fc_o_params+fc_i_params
                      +rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
                      model.parameters())
 
-# 第二次训练不重点学习  class
 optimizer = torch.optim.Adam([{'params': base_params},
                               {'params': model.featconv_e.parameters(), 'lr': learning_rate * 100},
                               {'params': model.featconv_n.parameters(), 'lr': learning_rate * 100},
@@ -168,31 +154,27 @@ optimizer = torch.optim.Adam([{'params': base_params},
                               {'params': model.rfc_a.parameters(), 'lr': learning_rate * 100},
                               {'params': model.rfc_c.parameters(), 'lr': learning_rate * 100},
                               {'params': model.rfc_o.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100},
-                              {'params': model.fc_e.parameters(), 'lr': learning_rate * 1},
-                              {'params': model.fc_n.parameters(), 'lr': learning_rate * 1},
-                              {'params': model.fc_a.parameters(), 'lr': learning_rate * 1},
-                              {'params': model.fc_c.parameters(), 'lr': learning_rate * 1},
-                              {'params': model.fc_o.parameters(), 'lr': learning_rate * 1},
-                              {'params': model.fc_i.parameters(), 'lr': learning_rate * 1},
-                              ], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
+                             {'params': model.rfc_i.parameters(), 'lr': learning_rate * 100}], lr=learning_rate, betas=[0.5, 0.999], weight_decay=weight_decay)
 
+if fix_step1_weight:
+    base_params = filter(lambda p: p.requires_grad, model.parameters())
+    torch.optim.Adam(base_params, lr=learning_rate *100,
+                     betas=[0.5, 0.999], weight_decay=weight_decay)
 
-# regress 不更新  其余都是 0.002的学习率更新
-base_params_class = filter(lambda p: id(p) not in rfc_e_params+rfc_n_params+rfc_a_params+rfc_c_params+rfc_o_params+rfc_i_params,
-                     model.parameters())
-
-optimizer_class = torch.optim.SGD([{'params': base_params}], lr=learning_rate * 100 , momentum=momentum)
-
-
-
+logger.info(get_parameter_number(model))
 
 
 #  data preparation
 
 
 data_list = get_data_list_and_big_five('./dataset/train', 'train')
+random.shuffle (data_list )
+data_list_train = data_list[0: 5400]
+data_list_valid = data_list[5400: ]
+test_data_list = get_data_list_and_big_five('./dataset/test', 'test')
 #data_list = data_list[0:200]
+#test_data_list = test_data_list[0:200]
+
 #random.shuffle(data_list)
 
 import torchvision
@@ -322,10 +304,10 @@ def train(data_loader, epoch):
             #running_loss = cls_loss * 200  + reg_loss
 
         # running_loss = cls_loss
-        optimizer_class.zero_grad()
-
-        cls_loss.backward(retain_graph=True)
-        optimizer_class.step()
+        # optimizer_class.zero_grad()
+        #
+        # cls_loss.backward(retain_graph=True)
+        # optimizer_class.step()
 
         optimizer.zero_grad()
 
@@ -343,70 +325,16 @@ def train(data_loader, epoch):
 
     train_plot_arr_allloss.append([total_rloss, total_closs, total_rloss, total_L1loss, total_L2loss, total_Beloss])
 
+
+
     if (epoch + 1)%10  == 0:
 
         np.savetxt('train_plot_arr_allloss' + str(useHead) + '.csv',train_plot_arr_allloss,
                    delimiter=',', fmt='%.5f')
 
-    print("epoch: " + str(epoch + 1))
-    print ( "=============training=====================")
-    print('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (total_running_loss, total_rloss, total_closs,))
-
-def train_step1(data_loader, epoch):
-
-
-    total_closs = 0.0
-
-    start_time = time.time()
-
-
-    for batch, (arr, choice_frame, name, cls_labels, reg_labels) in enumerate(data_loader):
-
-        optimizer_class.zero_grad()
-
-
-        model.train()
-
-
-        el, nl, al, cl, ol, il = reg_labels
-        ecl, ncl, acl, ccl, ocl, icl = cls_labels
-        x_cls, _, _ = model(arr.cuda())
-
-        #预测的分类值
-        ec = x_cls[0]
-        nc = x_cls[1]
-        ac = x_cls[2]
-        cc = x_cls[3]
-        oc = x_cls[4]
-        ic = x_cls[5]
-
-
-        # 计算分类损失
-        lc_e = loss(ec, ecl.cuda())
-        lc_n = loss(nc, ncl.cuda())
-        lc_a = loss(ac, acl.cuda())
-        lc_c = loss(cc, ccl.cuda())
-        lc_o = loss(oc, ocl.cuda())
-        lc_i = loss(ic, icl.cuda())
-
-
-        cls_loss = lc_e + lc_n + lc_a + lc_c + lc_o + lc_i
-
-        cls_loss.backward()
-
-
-        optimizer_class.step()
-
-        total_closs = total_closs + cls_loss.item()/train_batch_size
-
-
-
-
-
-
-    print("epoch: " + str(epoch + 1))
-    print ( "=============training=====================")
-    print('total closs:  %4f ' % ( total_closs,))
+    logger.info("epoch: " + str(epoch + 1))
+    logger.info ( "=============training=====================")
+    logger.info('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (total_running_loss, total_rloss, total_closs,))
 
 
 def valid(data_loader, epoch):
@@ -421,136 +349,281 @@ def valid(data_loader, epoch):
     total_valid_acc = 0.0
     start_time = time.time()
 
+    model.eval()
+    with torch.no_grad():
 
-    for batch, (arr, choice_frame, name, cls_labels, reg_labels) in enumerate(data_loader):
-        model.eval()
+        for batch, (arr, choice_frame, name, cls_labels, reg_labels) in enumerate(data_loader):
 
-        el, nl, al, cl, ol, il = reg_labels
-        ecl, ncl, acl, ccl, ocl, icl = cls_labels
-        x_cls, x_reg, _ = model(arr.cuda())
-        #预测的分类值
-        ec = x_cls[0]
-        nc = x_cls[1]
-        ac = x_cls[2]
-        cc = x_cls[3]
-        oc = x_cls[4]
-        ic = x_cls[5]
-
-
-
-        # 计算分类损失
-        lc_e = loss(ec, ecl.cuda())
-        lc_n = loss(nc, ncl.cuda())
-        lc_a = loss(ac, acl.cuda())
-        lc_c = loss(cc, ccl.cuda())
-        lc_o = loss(oc, ocl.cuda())
-        lc_i = loss(ic, icl.cuda())
-        # 真实值
-        e = x_reg[0]
-        n = x_reg[1]
-        a = x_reg[2]
-        c = x_reg[3]
-        o = x_reg[4]
-        i = x_reg[5]
-
-
-        # 计算回归损失
-        loss_e = L2loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
-                L1loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
-                 bellloss(torch.mul(e, 100), el.float().view_as(e).cuda())
-
-
-        loss_n = L2loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
-                L1loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
-                bellloss(torch.mul(n, 100), nl.float().view_as(n).cuda())
-
-
-        loss_a = L2loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
-                L1loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
-                bellloss(torch.mul(a, 100), al.float().view_as(a).cuda())
-
-
-        loss_c = L2loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
-                L1loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
-               bellloss(torch.mul(c, 100), cl.float().view_as(c).cuda())
-
-        loss_o = L2loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
-                L1loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
-                bellloss(torch.mul(o, 100), ol.float().view_as(o).cuda())
-
-        loss_i = L2loss(torch.mul(i, 100), il.float().view_as(i).cuda()) + \
-                L1loss(torch.mul(i, 100), il.float().view_as(i).cuda()) + \
-                bellloss(torch.mul(i, 100), il.float().view_as(i).cuda())
-
-        # 分类损失
-        total_L1loss = total_L1loss + \
-                       (L1loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
-                       L1loss(torch.mul(n, 100), nl.float().view_as(n).cuda())+ \
-                       L1loss(torch.mul(a, 100), al.float().view_as(a).cuda())+ \
-                       L1loss(torch.mul(c, 100), cl.float().view_as(c).cuda())+ \
-                       L1loss(torch.mul(o, 100), ol.float().view_as(o).cuda())+ \
-                       L1loss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
-        total_L2loss = total_L1loss + \
-                       (L2loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
-                        L2loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
-                        L2loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
-                        L2loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
-                        L2loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
-                        L2loss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
-        total_Beloss = total_L1loss + \
-                       (bellloss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
-                        bellloss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
-                        bellloss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
-                        bellloss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
-                        bellloss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
-                        bellloss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
+            el, nl, al, cl, ol, il = reg_labels
+            ecl, ncl, acl, ccl, ocl, icl = cls_labels
+            x_cls, x_reg, _ = model(arr.cuda())
+            #预测的分类值
+            ec = x_cls[0]
+            nc = x_cls[1]
+            ac = x_cls[2]
+            cc = x_cls[3]
+            oc = x_cls[4]
+            ic = x_cls[5]
 
 
 
-        cls_loss = lc_e + lc_n + lc_a + lc_c + lc_o + lc_i
+            # 计算分类损失
+            lc_e = loss(ec, ecl.cuda())
+            lc_n = loss(nc, ncl.cuda())
+            lc_a = loss(ac, acl.cuda())
+            lc_c = loss(cc, ccl.cuda())
+            lc_o = loss(oc, ocl.cuda())
+            lc_i = loss(ic, icl.cuda())
+            # 真实值
+            e = x_reg[0]
+            n = x_reg[1]
+            a = x_reg[2]
+            c = x_reg[3]
+            o = x_reg[4]
+            i = x_reg[5]
 
-        # 回归损失
-        reg_loss = loss_e + loss_n + loss_a + loss_c + loss_o + loss_i
-        # 总损失
 
-        if without_closs:
-            running_loss =  reg_loss
-        else:
-            running_loss = cls_loss * epoch_max_number / (epoch+1) + reg_loss
-            #running_loss = cls_loss * 200  + reg_loss
+            # 计算回归损失
+            loss_e = L2loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
+                    L1loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
+                     bellloss(torch.mul(e, 100), el.float().view_as(e).cuda())
 
-        # running_loss = cls_loss
 
-        total_closs = total_closs + cls_loss.item()/train_batch_size
-        total_rloss = total_rloss + reg_loss.item() / train_batch_size
-        total_running_loss = total_running_loss + running_loss.item() / train_batch_size
+            loss_n = L2loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
+                    L1loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
+                    bellloss(torch.mul(n, 100), nl.float().view_as(n).cuda())
 
-        # print('Eval [current epoch: %2d total: %2d iter/all %4d/%4d]  Loss: %.4f \t time: %.3f @ %s' % (epoch, epoch_max_number, batch,
-        #                                                                len(data_loader.dataset) / train_batch_size,
-        #                                                                 running_loss.item(), time.time() - start_time,
-        #                                                                     time.strftime('%m.%d %H:%M:%S', time.localtime(time.time()))))
-        # print('batch total loss:  %4f  %4f  %4f ' % (cls_loss.item() ,reg_loss.item(), running_loss.item()))
-        # print('%')
 
-    valid_plot_arr_allloss.append([total_running_loss, total_closs, total_rloss, total_L1loss, total_L2loss, total_Beloss])
+            loss_a = L2loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
+                    L1loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
+                    bellloss(torch.mul(a, 100), al.float().view_as(a).cuda())
+
+
+            loss_c = L2loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
+                    L1loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
+                   bellloss(torch.mul(c, 100), cl.float().view_as(c).cuda())
+
+            loss_o = L2loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
+                    L1loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
+                    bellloss(torch.mul(o, 100), ol.float().view_as(o).cuda())
+
+            loss_i = L2loss(torch.mul(i, 100), il.float().view_as(i).cuda()) + \
+                    L1loss(torch.mul(i, 100), il.float().view_as(i).cuda()) + \
+                    bellloss(torch.mul(i, 100), il.float().view_as(i).cuda())
+
+            # 分类损失
+            total_L1loss = total_L1loss + \
+                           (L1loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
+                           L1loss(torch.mul(n, 100), nl.float().view_as(n).cuda())+ \
+                           L1loss(torch.mul(a, 100), al.float().view_as(a).cuda())+ \
+                           L1loss(torch.mul(c, 100), cl.float().view_as(c).cuda())+ \
+                           L1loss(torch.mul(o, 100), ol.float().view_as(o).cuda())+ \
+                           L1loss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
+            total_L2loss = total_L1loss + \
+                           (L2loss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
+                            L2loss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
+                            L2loss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
+                            L2loss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
+                            L2loss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
+                            L2loss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
+            total_Beloss = total_L1loss + \
+                           (bellloss(torch.mul(e, 100), el.float().view_as(e).cuda()) + \
+                            bellloss(torch.mul(n, 100), nl.float().view_as(n).cuda()) + \
+                            bellloss(torch.mul(a, 100), al.float().view_as(a).cuda()) + \
+                            bellloss(torch.mul(c, 100), cl.float().view_as(c).cuda()) + \
+                            bellloss(torch.mul(o, 100), ol.float().view_as(o).cuda()) + \
+                            bellloss(torch.mul(i, 100), el.float().view_as(i).cuda())).item() / train_batch_size
+
+
+
+            cls_loss = lc_e + lc_n + lc_a + lc_c + lc_o + lc_i
+
+            # 回归损失
+            reg_loss = loss_e + loss_n + loss_a + loss_c + loss_o + loss_i
+            # 总损失
+
+            if without_closs:
+                running_loss =  reg_loss
+            else:
+                running_loss = cls_loss * epoch_max_number / (epoch+1) + reg_loss
+                #running_loss = cls_loss * 200  + reg_loss
+
+            # running_loss = cls_loss
+
+            total_closs = total_closs + cls_loss.item()/train_batch_size
+            total_rloss = total_rloss + reg_loss.item() / train_batch_size
+            total_running_loss = total_running_loss + running_loss.item() / train_batch_size
+
+            # logger.info('Eval [current epoch: %2d total: %2d iter/all %4d/%4d]  Loss: %.4f \t time: %.3f @ %s' % (epoch, epoch_max_number, batch,
+            #                                                                len(data_loader.dataset) / train_batch_size,
+            #                                                                 running_loss.item(), time.time() - start_time,
+            #                                                                     time.strftime('%m.%d %H:%M:%S', time.localtime(time.time()))))
+            # logger.info('batch total loss:  %4f  %4f  %4f ' % (cls_loss.item() ,reg_loss.item(), running_loss.item()))
+            # logger.info('%')
+
+        valid_plot_arr_allloss.append([total_running_loss, total_closs, total_rloss, total_L1loss, total_L2loss, total_Beloss])
 
     np.savetxt('valid_plot_arr_allloss' + str(useHead) + '.csv', valid_plot_arr_allloss,
                delimiter=',', fmt='%.5f')
 
-    print ("=============validition=====================")
-    print('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (total_running_loss, total_rloss, total_closs,))
+    logger.info ("=============validition=====================")
+    logger.info('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (total_running_loss, total_rloss, total_closs,))
 
-    print('extr. prediction data vs label')
+    logger.info('extr. prediction data vs label')
     np.set_printoptions(formatter={'float': '{: 0.1f}'.format})
-    print(torch.mul(n, 100).squeeze(1).cpu().data.numpy())
-    print(nl.float().data.numpy())
+    logger.info(torch.mul(n, 100).squeeze(1).cpu().data.numpy())
+    logger.info(nl.float().data.numpy())
 
-    print("\n\n")
+    logger.info("\n\n")
+
+def test(data_loader, train_loader, epoch):
+
+
+
+    acc = [0., 0., 0., 0., 0., 0]
+    feature_vector = []
+    label_vector = []
+    pre_label_vector = []
+
+    model.eval()
+    with torch.no_grad():
+
+        for batch, (arr, choice_frame, name, cls_labels, labels) in enumerate(data_loader):
+            ecl, ncl, acl, ccl, ocl, icl = cls_labels
+            el, nl, al, cl, ol, il = labels
+            # e = model(arr.cuda())
+            x_cls, x_reg, x_regress_result = model(arr.cuda())
+
+            ec = x_cls[0]
+            nc = x_cls[1]
+            ac = x_cls[2]
+            cc = x_cls[3]
+            oc = x_cls[4]
+            ic = x_cls[5]
+
+            # tmp = torch.stack([ec,nc,ac,cc,oc,ic])
+            #
+            # x_regress_result = torch.bmm(x_regress_result, tmp)
+
+            for i in range(x_regress_result.shape[0]):
+                feature_vector.append(x_regress_result[i].cpu().numpy())
+
+                label_vector.append([el[i].item() / 100, nl[i].item() / 100, al[i].item() / 100, cl[i].item() / 100,
+                                     ol[i].item() / 100, il[i].item() / 100])
+                pre_label_vector.append(
+                    [x_reg[0][i].cpu().numpy(), x_reg[1][i].cpu().numpy(), x_reg[2][i].cpu().numpy(),
+                     x_reg[3][i].cpu().numpy(), x_reg[4][i].cpu().numpy(), x_reg[5][i].cpu().numpy()])
+
+
+            # logger.info('extr. cls. prediction data vs label ', p_e.cpu().data.view(1, -1), ecl.cpu().data)
+            #
+            # logger.info('extr. prediction data vs label')
+            # np.set_logger.infooptions(formatter={'float': '{: 0.1f}'.format})
+            # logger.info(torch.mul(x_reg[1], 100).squeeze(1).cpu().data.numpy())
+            # logger.info(nl.float().data.numpy())
+            # logger.info("\n\n")
+            #
+            # logger.info('extr. reg. prediction data vs label ', x_reg[0].cpu().data.view(1, -1),
+            #       torch.mul(el, 0.01).cpu().data)
+
+            for i in range(0, 6):
+                acc[i] += torch.sum(torch.div(
+                    torch.abs((x_reg[i].cpu().data - torch.mul(labels[i], 0.01).float().view_as(x_reg[i]))),
+                    1
+                )).item()
+
+    logger.info("=============testing=====================")
+    result = []
+    label_vector = np.array(label_vector)
+    pre_label_vector = np.array(pre_label_vector)
+    for i in range(6):
+        x = label_vector[:, i]
+        y = pre_label_vector[:, i]
+        error = []
+        for j in range(len(x)):
+            error.append(abs(x[j] - y[j]))
+
+        # logger.info(np.mean(error))
+        result.append(np.mean(error))
+
+    logger.info(result)
+    logger.info(1 - np.mean(result[0:5]))
+
+    train_feature_vector = []
+    train_label_vector = []
+
+    # 用训练好的模型测试  测试集
+
+    with torch.no_grad():
+
+        for batch, (arr, choice_frame, name, cls_labels, labels) in enumerate(train_loader):
+
+            el, nl, al, cl, ol, il = labels
+
+            x_cls, x_reg, x_regress_result = model(arr.cuda())
+
+
+            for i in range(x_regress_result.shape[0]):
+                train_feature_vector.append(x_regress_result[i].cpu().numpy())
+
+                train_label_vector.append([el[i].item() / 100, nl[i].item() / 100, al[i].item() / 100, cl[i].item() / 100,
+                                     ol[i].item() / 100, il[i].item() / 100])
+
+    result_list = []
+
+    train_feature_vector = np.array(train_feature_vector)
+    feature_vector = np.array(feature_vector)
+    train_label_vector = np.array(train_label_vector)
+    label_vector = np.array(label_vector)
+    for i in range(6):
+
+        ss_x = StandardScaler()
+
+        x_train = ss_x.fit_transform(train_feature_vector[:, :, i])
+        x_test = ss_x.transform(feature_vector[:, :, i])
+
+        y_train = train_label_vector[:, i]
+        y_test = label_vector[:, i]
+
+        etr = ExtraTreesRegressor(n_estimators=200, max_features=512)
+        etr.fit(x_train, y_train)
+
+        etr_y_predict = etr.predict(x_test)
+
+        result = 0
+
+        for i in range(len(etr_y_predict)):
+            result = result + abs(etr_y_predict[i] - y_test[i])
+
+        result = result / len(etr_y_predict)
+
+        #logger.info("extra tree eval: " + str(1 - result))
+
+        result_list.append(1 - result)
+
+    total_L1loss = np.mean(result_list[0:5])
+    logger.info(result_list)
+
+    logger.info(total_L1loss)
+
+
+    global BAST_RESULT
+
+    if BAST_RESULT < total_L1loss:
+        #BAST_RESULT = total_L1loss
+        model_name = './models/best_shit_' + str(total_L1loss)[0:7]  + "_modality_type_" + str(modality_type) + '.model'
+
+        logger.info("save the shit:  " + str(total_L1loss))
+        torch.save(model, model_name)
+
+
+    logger.info("\n\n")
+
 
 def train_image():
 
 
-    print("total valid simple : " + str(len(data_list)))
+    logger.info("total valid simple : " + str(len(data_list)))
 
 
 
@@ -562,47 +635,62 @@ def train_image():
     else:
 
         train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
-                                                              data_list[0:len(data_list) // 5 * 4], useHead=useHead,
+                                                              data_list_train, useHead=useHead,
                                                               modality_type=modality_type)
         valid_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
-                                                              data_list[len(data_list) // 5 * 4: -1], useHead=useHead,
+                                                              data_list_valid , useHead=useHead,
                                                               modality_type=modality_type)
 
         valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=True)
 
 
+    test_dataset = PersonalityDataset.PersonalityDataset('./dataset/test', 'test',
+                                                         test_data_list, useHead=useHead,
+                                                          modality_type=modality_type)
+
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+
+
 
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
 
-    print("train simple:  " + str(len(train_dataset.data_list)))
 
+    logger.info("train simple:  " + str(len(train_dataset.data_list)))
+
+    logger.info("test simple:  " + str(len(test_dataset.data_list)))
 
     for epoch in range(epoch_max_number):
 
         global learning_rate
 
-        if useHead:
+        if modality_type == 0:
+            model_name = './models/567_pre_useSence_%d.model' % (epoch + 1)
+        elif modality_type == 1 :
             model_name = './models/567_pre_useHead_%d.model' % (epoch + 1)
         else:
-            model_name = './models/classAdd_567_pre_useSence_%d.model' % (epoch + 1)
+            model_name = './models/567_pre_useAudio_%d.model' % (epoch + 1)
+
 
         train(data_loader=train_dataloader, epoch=epoch)
         if not full_train:
             valid(data_loader=valid_dataloader, epoch=epoch)
+
+        test(data_loader=test_dataloader, train_loader=train_dataloader, epoch=epoch)
+
 
 
         if (epoch + 1) % 10 == 0:
 
             learning_rate = change_lr(optimizer,
                                       learning_rate)  # here the reference of learning_rate is also globally changed
-            print("======================" + str(learning_rate) + "========================")
+            logger.info("======================" + str(learning_rate) + "========================")
 
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 10 == 0 and epoch >= 20:
             torch.save(model, model_name)
 
-    print(model_name)
+    logger.info(model_name)
 
-    print_loss()
+    logger.info_loss()
 
 def train_text():
     typ = "train"
@@ -617,7 +705,7 @@ def train_text():
     with open('feature_extraction_result/train_textfeature.csv', 'r') as f:
         reader = csv.reader(f)
         for row in reader:
-            #print(row)
+            #logger.info(row)
             filename = row[0]
             tmp = row[1:]
 
@@ -639,7 +727,7 @@ def train_text():
     with open('feature_extraction_result/test_textfeature.csv', 'r') as f:
         reader = csv.reader(f)
         for row in reader:
-            #print(row)
+            #logger.info(row)
             filename = row[0]
             tmp = row[1:]
 
@@ -660,10 +748,10 @@ def train_text():
 
     from sklearn.preprocessing import StandardScaler
 
-    print("train_feature_arr:       " + str(len(train_feature_vector)))
-    print("train_feature_score:     " + str(len(train_label_vector)))
-    print("test_feature_arr:        " + str(len(test_feature_vector)))
-    print("test_feature_score:      " + str(len(test_label_vector)))
+    logger.info("train_feature_arr:       " + str(len(train_feature_vector)))
+    logger.info("train_feature_score:     " + str(len(train_label_vector)))
+    logger.info("test_feature_arr:        " + str(len(test_feature_vector)))
+    logger.info("test_feature_score:      " + str(len(test_label_vector)))
 
     result_list = []
 
@@ -692,11 +780,11 @@ def train_text():
 
         result = result / len(etr_y_predict)
 
-        print("extra tree eval: " + str(1 - result))
+        logger.info("extra tree eval: " + str(1 - result))
 
         result_list.append(1 - result)
-    print(result_list)
-    print(np.mean(result_list))
+    logger.info(result_list)
+    logger.info(np.mean(result_list))
 
 def train_audio():
 
@@ -709,14 +797,14 @@ def train_audio():
         data = scio.loadmat(path)
 
         # 读取数据 和训练集视频对应 6000个
-        # print (data["OS_IS13"][0][0][0])
+        # logger.info (data["OS_IS13"][0][0][0])
 
         dict_audio_data = {}
 
         for item in range(8000):
             file_name = data["OS_IS13"][0][0][0][item][0][0]
-            # print(file_name)
-            # print(data["OS_IS13"][0][0][1][item])
+            # logger.info(file_name)
+            # logger.info(data["OS_IS13"][0][0][1][item])
             dict_audio_data[file_name] = data["OS_IS13"][0][0][1][item]
 
         train_feature = []
@@ -746,7 +834,7 @@ def train_audio():
                 torch.save(model, model_name)
     else:
         #data_list = data_list[0:200]
-        print("total valid simple : " + str(len(data_list)))
+        logger.info("total valid simple : " + str(len(data_list)))
 
         train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
                                                               data_list[0:len(data_list) // 5 * 4], useHead=useHead,
@@ -773,7 +861,7 @@ def train_audio():
             if (epoch + 1) % 5 == 0:
                 torch.save(model, model_name)
 
-    print_loss()
+    logger.info_loss()
 
 def train_audio_OS_IS(data_loader, epoch):
 
@@ -806,7 +894,7 @@ def train_audio_OS_IS(data_loader, epoch):
         oc = x_cls[4]
         ic = x_cls[5]
 
-        # #print(e.size(), n.size())
+        # #logger.info(e.size(), n.size())
         # p_e = ec.max(1, keepdim=True)[1]
         # p_n = nc.max(1, keepdim=True)[1]
         # p_a = ac.max(1, keepdim=True)[1]
@@ -898,12 +986,12 @@ def train_audio_OS_IS(data_loader, epoch):
         total_rloss = total_rloss + reg_loss.item() / train_batch_size
         total_running_loss = total_running_loss + running_loss.item() / train_batch_size
 
-        # print('Training [current epoch: %2d total: %2d iter/all %4d/%4d]  Loss: %.4f \t time: %.3f @ %s' % (epoch, epoch_max_number, batch,
+        # logger.info('Training [current epoch: %2d total: %2d iter/all %4d/%4d]  Loss: %.4f \t time: %.3f @ %s' % (epoch, epoch_max_number, batch,
         #                                                                len(data_loader.dataset) / train_batch_size,
         #                                                                 running_loss.item(), time.time() - start_time,
         #                                                                     time.strftime('%m.%d %H:%M:%S', time.localtime(time.time()))))
-        # print('batch total loss:  %4f  %4f  %4f ' % (cls_loss.item() ,reg_loss.item(), running_loss.item()))
-        # print('%')
+        # logger.info('batch total loss:  %4f  %4f  %4f ' % (cls_loss.item() ,reg_loss.item(), running_loss.item()))
+        # logger.info('%')
 
     train_plot_arr_allloss.append([total_rloss, total_closs, total_rloss, total_L1loss, total_L2loss, total_Beloss])
 
@@ -911,45 +999,10 @@ def train_audio_OS_IS(data_loader, epoch):
         np.savetxt('train_plot_arr_allloss' + str(useHead) + '.csv', train_plot_arr_allloss,
                    delimiter=',', fmt='%.5f')
 
-    print("epoch: " + str(epoch + 1))
-    print("=============training=====================")
-    print('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (
+    logger.info("epoch: " + str(epoch + 1))
+    logger.info("=============training=====================")
+    logger.info('total allLoss:  %4f  total rloss:  %4f   total closs:  %4f ' % (
     total_running_loss, total_rloss, total_closs,))
-
-
-
-
-def train_image_step1():
-
-    train_dataset = PersonalityDataset.PersonalityDataset('./dataset/train', 'train',
-                                                          data_list, useHead=useHead,
-                                                          modality_type=modality_type)
-
-    train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-
-
-    for epoch in range(epoch_max_number):
-
-        global learning_rate
-
-        if useHead:
-            model_name = './models/step1_pre_useHead_%d.model' % (epoch + 1)
-        else:
-            model_name = './models/step1_pre_useSence_%d.model' % (epoch + 1)
-
-        train_step1(data_loader=train_dataloader, epoch=epoch)
-
-        if (epoch + 1) % 10 == 0:
-
-            learning_rate = change_lr(optimizer_class,
-                                      learning_rate)  # here the reference of learning_rate is also globally changed
-            print("======================" + str(learning_rate) + "========================")
-
-        if (epoch + 1) % 5 == 0:
-            torch.save(model, model_name)
-
-    print(model_name)
-
 
 
 
@@ -1009,20 +1062,7 @@ if __name__ == '__main__':
     #
 
 
-    #print_loss()
-    #
-    if train_stage == 1:
-
-        if modality_type == 2:
-            train_audio()
-        else:
-            train_image_step1()
-
-    else:
-        if modality_type == 2:
-            train_audio()
-        else:
-            train_image()
+    train_image()
 
 
     # train_image_step1()
@@ -1033,14 +1073,20 @@ if __name__ == '__main__':
     #
     # train_image()
     #
-    # print(train_stage, div_arr, modality_type, resnet_pretrained)
+    # logger.info(train_stage, div_arr, modality_type, resnet_pretrained)
     #
-    if modality_type == 2:
-        test_audio_resnet()
-    else:
-        test_visual()
+    # if modality_type == 2:
+    #     test_audio_resnet()
+    # else:
+    #     test_visual(epoch_num=30)
+    #     extra_tree_regress_eval()
+    #
+    #     test_visual(epoch_num=40)
+    #     extra_tree_regress_eval()
+    #
+    #     test_visual(epoch_num=5.0)
+    #     extra_tree_regress_eval()
 
-    extra_tree_regress_eval()
 
     #===============================EDA==========================================================
 
@@ -1062,7 +1108,7 @@ if __name__ == '__main__':
     #             tmp3 = tmp3 + 1
     #         else:
     #             tmp4 = tmp4 + 1
-    # print(tmp1, tmp2, tmp3, tmp4)
+    # logger.info(tmp1, tmp2, tmp3, tmp4)
 
     # dataType = "test"
     #
@@ -1088,7 +1134,7 @@ if __name__ == '__main__':
     #     else:
     #         file_list_test.append(item)
     #
-    # print(len(file_list_test))
+    # logger.info(len(file_list_test))
     #
     #
     #
@@ -1112,4 +1158,4 @@ if __name__ == '__main__':
     #     tmp = DATASET_PATH + filename[len(DATASET_PATH)+1:-4] + ".npy"
     #
     #     np.save(tmp, y)
-    #     print(tmp)
+    #     logger.info(tmp)
